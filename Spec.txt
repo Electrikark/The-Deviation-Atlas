@@ -1,0 +1,103 @@
+# The Deviation Atlas — Foundations Spec (v0.1)
+
+**Purpose:** Lock V1 foundations before any backtest is run. Every choice below is a falsifiable commitment. Deviations require a written note in `/decisions/`.
+
+---
+
+## 1. Universe & Data Source
+
+**Universe (V1):** SPDR S&P 500 ETF (`SPY`), daily closes, **2000-01-01 → today**.
+Single, liquid, no survivorship bias, ~6,300 observations. Multi-asset deferred to V2.
+
+**Data source — commit:** `yfinance` (Python).
+
+| Source | Coverage | Access | Reliability | V1 verdict |
+|---|---|---|---|---|
+| **yfinance** | Global equities, ETFs, indices | `pip install yfinance`, no key | Scraped; occasional gaps, adjusted-close quirks | ✅ Primary |
+| FRED | Macro (rates, CPI, VIX), no individual stocks | API key, free | Authoritative | Macro context only |
+| Alpha Vantage | Equities, FX, crypto | API key, ~25 req/day free | Strict rate limits | ❌ Too slow for iteration |
+
+**Known yfinance risks to mitigate:** validate no missing trading days, check adjusted-close consistency, sanity-check SPY series against FRED's `SP500` quarterly.
+
+---
+
+## 2. Elevated Risk Flag (the signal)
+
+**Commit: Volatility spike.** Fires on day `t` when 20-day realized vol exceeds 1.5× its trailing 252-day median.
+
+```
+ret_t      = log(close_t / close_{t-1})
+vol_20_t   = std(ret_{t-19..t}) * sqrt(252)
+threshold  = 1.5 * median(vol_20_{t-251..t})
+flag_t     = 1 if vol_20_t > threshold else 0
+```
+
+**Prediction horizon:** signal on day `t` predicts a drawdown in `[t+1, t+30]` (trading days). Uses only data available at close of `t` — no look-ahead.
+
+**Why this signal over alternatives:**
+- **MA crossover (50/200):** widely known and arbitraged; weak prior.
+- **RSI < 30 oversold:** a mean-reversion signal — wrong tool for risk flagging.
+- **Vol spike:** grounded in volatility clustering (Engle 1982 ARCH, Nobel 2003). Simple, rarely fires, well-motivated.
+
+---
+
+## 3. Drawdown Threshold (the target)
+
+**Commit:** A drawdown event in window `[t+1, t+30]` occurs iff
+
+```
+min(close_{t+1..t+30}) / close_t - 1 ≤ -0.05
+```
+
+i.e., **peak-to-trough decline of ≥5% within 30 trading days** of the signal close.
+
+**Why 5% / 30d:**
+- 10% / 60d on SPY gives ~10–25 events in 25 years → wide CIs, no power.
+- 5% / 30d gives O(100s) of events → enough power for hit-rate inference.
+- Materially painful for a retail investor (5% of $100k = $5k).
+
+**Acknowledged tradeoff:** 5% is "small correction," not "crisis." V2 must repeat the analysis at 10%/60d and 20%/120d as robustness checks.
+
+---
+
+## 4. Metrics
+
+For each day `t`, build the 2×2:
+
+| | Drawdown occurs | No drawdown |
+|---|---|---|
+| **Signal fires** | Hit (TP) | False alarm (FP) |
+| **No signal** | Miss (FN) | Quiet (TN) |
+
+**Required reports:**
+- **Base rate** = `(TP + FN) / N`. Without this, every other metric is theater.
+- **Hit rate (TPR)** = `TP / (TP + FN)`
+- **False alarm rate (FPR)** = `FP / (FP + TN)`
+- **Precision** = `TP / (TP + FP)` — "given the signal, P(drawdown)"
+- **Lift** = Precision / Base rate. **V1 ship gate: lift ≥ 1.5.**
+- **Avg drawdown depth on hits** = mean of `min(close_{t+1..t+30}) / close_t − 1` over hit days.
+- **Avg lead time on hits** = trading days from signal to trough.
+
+---
+
+## 5. Null Model (the wrongness-first gate)
+
+Before any V1 number is celebrated:
+
+1. Simulate a **random signal** firing on the same proportion of days as the vol-spike signal (N = 1,000 Monte Carlo runs).
+2. Compute hit rate, FPR, precision under random firing.
+3. **The real signal must exceed the 95th percentile of the random distribution on precision.** If it doesn't, the foundation is rotten — V2 is blocked until the signal is replaced.
+
+This is not optional. Skipping it defeats the entire premise of the project.
+
+---
+
+## 6. Locked vs. Open
+
+**Locked (changes require a written deviation note):** universe, data source, signal formula, drawdown definition, prediction horizon, metric definitions, null-model gate.
+
+**Open for V2:** robustness over thresholds (10%/60d, 20%/120d), additional signals, multi-asset universe, regime conditioning, transaction cost overlay, intraday data.
+
+---
+
+*Spec owner: [you] · Version: 0.1 · Date locked: [fill on commit]*
