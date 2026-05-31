@@ -1,2 +1,44 @@
-# The-Deviation-Atlas
-The Deviation Atlas is a financial risk dashboard built on a single radical idea: the headline metric is never the risk score — it is the model's track record of being right and wrong. Every alert leads with the model's history: how many times it has flagged elevated risk, how many of those were genuine, and how many were false alarms.
+# data_loader.py
+
+Pulls daily price data from Yahoo Finance, validates it, and writes one CSV per ticker.
+
+## Install
+
+```bash
+pip install yfinance pandas
+```
+
+## Run
+
+```bash
+python data_loader.py --tickers SPY,AAPL,MSFT --years 2
+```
+
+| Flag | Required | Default | Notes |
+|---|---|---|---|
+| `--tickers` | yes | — | Comma-separated symbols |
+| `--years` | no | 2 | Years of history from today |
+| `--output-dir` | no | `data` | CSVs written here, one per ticker |
+
+## Output
+
+`<TICKER>.csv` with columns: `date, open, high, low, close, volume`.
+
+**Prices are split- and dividend-adjusted** (yfinance `auto_adjust=True`). This matters for the Deviation Atlas: raw close prices have phantom ~0.5% drops on dividend ex-dates that would generate spurious volatility-spike signals. The locked spec's "close" should be read as adjusted close.
+
+## Validation
+
+The script fails loudly (non-zero exit, error to stderr) if any ticker has:
+- Nulls in any required column
+- Non-monotonic dates
+- A gap > 5 calendar days between consecutive rows (long weekends ≤ 4 days are fine)
+
+Known legitimate closures (9/11/2001 → 9/17/2001; Sandy Oct 29–30, 2012) will trip the gap check on purpose. Document and override deliberately rather than relaxing the validator.
+
+Failed tickers don't block successful ones — partial output is written, but exit code is 1 if anything failed.
+
+## What this doesn't do
+
+- No retries / backoff on transient network failures (add for production).
+- No caching — every run hits Yahoo. Fine at this scale; revisit if you start iterating fast.
+- No cross-check against a second source (FRED `SP500` for SPY). Worth doing once a quarter; not automated here.
