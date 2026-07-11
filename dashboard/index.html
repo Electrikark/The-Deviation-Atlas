@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Deviation Atlas — Track Record</title>
+<style>
+  /* Role tokens (reference palette; swap for brand values in one place) */
+  :root {
+    --page:           #f9f9f7;
+    --surface-1:      #fcfcfb;
+    --text-primary:   #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted:     #898781;
+    --hairline:       #e1e0d9;
+    --border:         rgba(11,11,11,0.10);
+    --status-good:    #0ca30c;
+    --status-good-text: #006300;
+    --status-critical:#d03b3b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --page:           #0d0d0d;
+      --surface-1:      #1a1a19;
+      --text-primary:   #ffffff;
+      --text-secondary: #c3c2b7;
+      --text-muted:     #898781;
+      --hairline:       #2c2c2a;
+      --border:         rgba(255,255,255,0.10);
+      --status-good:    #0ca30c;
+      --status-good-text: #0ca30c;
+      --status-critical:#d03b3b;
+    }
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    background: var(--page);
+    color: var(--text-primary);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    padding: 24px;
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+  header { margin-bottom: 20px; }
+  h1 { font-size: 1.35rem; font-weight: 650; }
+  .sub { color: var(--text-secondary); font-size: 0.85rem; margin-top: 4px; }
+
+  /* Verdict banner — icon + label, never color alone */
+  .verdict {
+    display: inline-flex; align-items: center; gap: 8px;
+    border: 1px solid var(--border); border-radius: 8px;
+    background: var(--surface-1);
+    padding: 10px 14px; margin: 14px 0 6px;
+    font-weight: 600; font-size: 0.95rem;
+  }
+  .verdict .detail { font-weight: 400; color: var(--text-secondary); font-size: 0.85rem; }
+  .pass { color: var(--status-good-text); }
+  .fail { color: var(--status-critical); }
+
+  /* Stat tiles */
+  .tiles {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 12px; margin: 18px 0 28px;
+  }
+  .tile {
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+  }
+  .tile .label { color: var(--text-secondary); font-size: 0.78rem; }
+  .tile .value { font-size: 1.55rem; font-weight: 600; margin-top: 4px; }
+  .tile .note  { color: var(--text-muted); font-size: 0.75rem; margin-top: 4px; }
+  .tile.hero .value { font-size: 3rem; }
+  .tile.hero { grid-column: span 2; }
+
+  /* History table */
+  h2 { font-size: 1.05rem; margin-bottom: 4px; }
+  .tablewrap {
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow-x: auto; margin-top: 10px;
+  }
+  table { border-collapse: collapse; width: 100%; font-size: 0.85rem; }
+  th, td { text-align: right; padding: 7px 14px; white-space: nowrap; }
+  th:first-child, td:first-child, th:last-child, td:last-child { text-align: left; }
+  th {
+    color: var(--text-muted); font-weight: 500; font-size: 0.75rem;
+    border-bottom: 1px solid var(--hairline);
+    position: sticky; top: 0; background: var(--surface-1);
+  }
+  td { border-bottom: 1px solid var(--hairline); font-variant-numeric: tabular-nums; }
+  tr:last-child td { border-bottom: none; }
+  .outcome { display: inline-flex; align-items: center; gap: 6px; }
+  .err {
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 10px; padding: 16px; color: var(--status-critical);
+  }
+  code { font-size: 0.85em; }
+</style>
+</head>
+<body>
+<header>
+  <h1>The Deviation Atlas — track record</h1>
+  <div class="sub" id="meta">Loading dashboard_data.json…</div>
+</header>
+<main id="app"></main>
+
+<script>
+"use strict";
+/* Display layer ONLY — every number below is pre-computed by Python
+   (metrics.py / null_gate.py via export_dashboard_data.py). This file
+   formats and renders; it never derives a metric. */
+
+const pct  = (x, d = 1) => x == null ? "—" : (x * 100).toFixed(d) + "%";
+const num  = x => x == null ? "—" : x.toLocaleString("en-US");
+const fx   = (x, d = 2) => x == null ? "—" : x.toFixed(d);
+const days = x => x == null ? "—" : `${(+x).toFixed(0)}d`;
+const esc  = s => String(s).replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
+
+function tile(label, value, note, hero = false) {
+  return `<div class="tile${hero ? " hero" : ""}">
+    <div class="label">${esc(label)}</div>
+    <div class="value">${value}</div>
+    ${note ? `<div class="note">${esc(note)}</div>` : ""}
+  </div>`;
+}
+
+function verdictBanner(g) {
+  const ok = g.v1_pass;
+  return `<div class="verdict">
+    <span class="${ok ? "pass" : "fail"}">${ok ? "✓ V1 gate: PASS" : "✕ V1 gate: FAIL"}</span>
+    <span class="detail">
+      lift gate ${g.lift_gate_pass ? "pass" : "fail"} (${fx(g.real_lift)}x vs ≥1.5) ·
+      precision gate ${g.precision_gate_pass ? "pass" : "fail"}
+      (${pct(g.real_precision)} vs null 95th pct ${pct(g.null_p95)}, p=${fx(g.p_value, 3)})
+    </span>
+  </div>`;
+}
+
+function eventRow(e) {
+  const hit = e.outcome === "hit";
+  return `<tr>
+    <td>${esc(e.flag_date)}</td>
+    <td>${fx(e.signal_value, 4)}</td>
+    <td>${fx(e.threshold, 4)}</td>
+    <td>${pct(e.max_drawdown_30d, 2)}</td>
+    <td>${e.lead_time == null ? "—" : days(e.lead_time)}</td>
+    <td><span class="outcome ${hit ? "fail" : ""}">${hit ? "▼ hit" : "○ false alarm"}</span></td>
+  </tr>`;
+  /* "hit" wears the critical color: a hit means a real >5% drawdown followed. */
+}
+
+async function render() {
+  const app = document.getElementById("app");
+  let d;
+  try {
+    const r = await fetch("dashboard_data.json", { cache: "no-store" });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    d = await r.json();
+  } catch (err) {
+    app.innerHTML = `<div class="err">Could not load <code>dashboard_data.json</code>
+      (${esc(err.message)}). If opened as a file://, serve the folder instead:
+      <code>python -m http.server</code> then open http://localhost:8000/dashboard/</div>`;
+    return;
+  }
+
+  const h = d.headline, g = d.null_gate;
+  document.getElementById("meta").textContent =
+    `${d.ticker} · ${num(h.n_days)} classified trading days · generated ${d.generated_at}`;
+
+  app.innerHTML = `
+    ${verdictBanner(g)}
+    <div class="tiles">
+      ${tile("Precision (hits / flags)",
+             `${pct(h.precision)}`,
+             `95% CI ${pct(h.precision_ci_low)}–${pct(h.precision_ci_high)}`, true)}
+      ${tile("Signal fired", num(h.total_flags), `across ${num(h.n_days)} days`)}
+      ${tile("Hits", num(h.hit_count), ">5% drawdown followed within 30 days")}
+      ${tile("False alarms", num(h.false_alarm_count), "no such drawdown followed")}
+      ${tile("Base rate", pct(h.base_rate), "any-day 5%/30d drawdown probability")}
+      ${tile("Lift", fx(h.lift) + "x", "precision / base rate")}
+      ${tile("Hit rate (TPR)", pct(h.hit_rate_tpr), "flags among all drawdown days")}
+      ${tile("False alarm rate (FPR)", pct(h.false_alarm_rate_fpr), "flags among calm days")}
+      ${tile("Avg drawdown on hits", pct(h.avg_drawdown_on_hits),
+             `median ${pct(h.median_drawdown_on_hits)}`)}
+      ${tile("Avg lead time on hits", days(h.avg_lead_time_on_hits), "flag to −5% crossing")}
+    </div>
+
+    <h2>Per-signal history</h2>
+    <div class="sub">All ${num(d.events.length)} flag events, unfiltered — false alarms included.</div>
+    <div class="tablewrap"><table>
+      <thead><tr>
+        <th>Flag date</th><th>Signal (vol_20)</th><th>Threshold</th>
+        <th>Max drawdown 30d</th><th>Lead time</th><th>Outcome</th>
+      </tr></thead>
+      <tbody>${d.events.map(eventRow).join("")}</tbody>
+    </table></div>`;
+}
+render();
+</script>
+</body>
+</html>
