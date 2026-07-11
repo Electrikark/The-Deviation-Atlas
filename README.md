@@ -20,6 +20,16 @@ relative path. Enable Pages on the repo (serve from root or `/dashboard`) and
 commit `dashboard/index.html` + `dashboard/dashboard_data.json`. Re-run the
 export and re-commit the JSON to refresh the numbers.
 
+**Week 8 additions:** precision / TPR / FPR show 95% uncertainty ranges from a
+paired circular block bootstrap (`uncertainty.py`, decision 0003) — the Wilson
+interval is shown in the footnote as the (narrower, independence-assuming)
+comparison. A "Comparable past cases" panel shows, for any selected flag event,
+the 5 past flags nearest by |signal_value| distance and their outcomes;
+neighbors are precomputed at export time (`events[i].neighbors`), so the
+frontend does no distance math. If the V1 gate passes but the bootstrap CI
+lower bound dips below the null 95th percentile, the banner shows
+"PASS (fragile)" instead of a clean pass.
+
 ---
 
 # data_loader.py

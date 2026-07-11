@@ -18,8 +18,13 @@ import math
 from datetime import datetime, timezone
 from pathlib import Path
 
+import numpy as np
+
 import metrics
 import null_gate
+import uncertainty
+
+N_NEIGHBORS = 5   # comparable-cases panel size (Week 8, approved)
 
 
 def clean(x):
@@ -35,6 +40,24 @@ def build_payload(df, ticker: str) -> dict:
     s = {k: clean(v) for k, v in metrics.summary(df).items()}
     g = {k: clean(v) for k, v in null_gate.run_gate(df).items()}
 
+    # Clustering-aware 95% CIs (decision 0003). Wilson fields in `s` are kept
+    # as the labeled independence-assuming comparison; these are the honest ones.
+    bb = uncertainty.paired_block_bootstrap_cis(
+        df["flag"].to_numpy(), df["is_drawdown_day"].to_numpy()
+    )
+    s["precision_ci_bb_low"], s["precision_ci_bb_high"] = map(clean, bb["precision"])
+    s["tpr_ci_bb_low"], s["tpr_ci_bb_high"] = map(clean, bb["tpr"])
+    s["fpr_ci_bb_low"], s["fpr_ci_bb_high"] = map(clean, bb["fpr"])
+
+    # Gate fragility is computed HERE, not in JS: a PASS whose clustering-aware
+    # CI lower bound falls at/below the null 95th pct is flagged, not hidden.
+    g["fragile"] = bool(
+        g["v1_pass"]
+        and s["precision_ci_bb_low"] is not None
+        and g["null_p95"] is not None
+        and s["precision_ci_bb_low"] <= g["null_p95"]
+    )
+
     flags = df[df["flag"] == 1]
     events = [
         {
@@ -48,11 +71,34 @@ def build_payload(df, ticker: str) -> dict:
         for r in flags.to_dict("records")
     ]
 
+    # Comparable cases (Week 8, approved): N nearest past events by
+    # |signal_value| distance, precomputed so the frontend does no distance
+    # math or sorting. Indices reference this same `events` array.
+    sv = np.array([e["signal_value"] for e in events], dtype=float)
+    dist = np.abs(sv[:, None] - sv[None, :])
+    np.fill_diagonal(dist, np.inf)
+    order = np.argsort(dist, axis=1, kind="stable")[:, :N_NEIGHBORS]
+    for i, e in enumerate(events):
+        e["neighbors"] = [int(j) for j in order[i]]
+
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "ticker": ticker,
         "headline": s,
         "null_gate": g,
+        "ci_method": {
+            "name": "paired circular block bootstrap (Politis & Romano 1994)",
+            "block": bb["block"],
+            "runs": bb["n_runs"],
+            "seed": bb["seed"],
+            "assumption": (
+                "Resamples 30-trading-day blocks, so consecutive flag-days from "
+                "one volatility regime stay together — does NOT assume "
+                "independent flags. The narrower Wilson interval (which does) "
+                "is shown for comparison on precision."
+            ),
+        },
+        "n_neighbors": N_NEIGHBORS,
         "events": events,
     }
 
