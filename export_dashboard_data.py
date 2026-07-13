@@ -71,6 +71,11 @@ def build_payload(df, ticker: str) -> dict:
         for r in flags.to_dict("records")
     ]
 
+    # Newest-first: the table leads with the most recent flag. Done HERE (order
+    # is data, owned by Python) and BEFORE neighbor computation so the baked
+    # indices reference the shipped order.
+    events.reverse()
+
     # Comparable cases (Week 8, approved): N nearest past events by
     # |signal_value| distance, precomputed so the frontend does no distance
     # math or sorting. Indices reference this same `events` array.

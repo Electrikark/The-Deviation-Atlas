@@ -240,7 +240,7 @@ async function render() {
   DATA = d;
 
   const h = d.headline, g = d.null_gate, m = d.ci_method;
-  const selected = d.events.length - 1;   // default: most recent flag
+  const selected = 0;   // default: most recent flag (events ship newest-first)
   const ciHover = `${m.name} — block=${m.block}, ${m.runs} resamples, seed=${m.seed}. ${m.assumption}`;
 
   document.getElementById("meta").textContent =
