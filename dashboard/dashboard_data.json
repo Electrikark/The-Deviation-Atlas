@@ -1,6 +1,30 @@
 {
- "generated_at": "2026-07-13T00:29:19+00:00",
+ "generated_at": "2026-08-02T06:26:52+00:00",
  "ticker": "SPY",
+ "latest": {
+  "date": "2026-05-29",
+  "flag": 0,
+  "signal_value": 0.0975,
+  "threshold": 0.1763,
+  "ratio": 0.5529
+ },
+ "study_event": {
+  "flag_date": "2018-02-02",
+  "signal_value": 0.121,
+  "threshold": 0.101,
+  "max_drawdown_30d": -0.0647,
+  "outcome": "hit",
+  "lead_time": 4.0,
+  "neighbors": [
+   931,
+   939,
+   391,
+   394,
+   392
+  ],
+  "index": 458,
+  "ratio": 1.198
+ },
  "headline": {
   "total_flags": 1089,
   "hit_count": 410,

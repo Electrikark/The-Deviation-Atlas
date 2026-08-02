@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Deviation Atlas — Risk Monitor</title>
+<link rel="stylesheet" href="common.css">
+<style>
+  /* Score-only view (Week 9 study stimulus): current state + one point
+     estimate. Deliberately excludes hit rate, FPR, CIs, comparable cases,
+     and all track-record language. Same data file, same display-only rule. */
+  .monitor { max-width: 560px; margin: 8vh auto 0; }
+  .topbar {
+    display: flex; align-items: baseline; justify-content: space-between;
+    margin-bottom: 18px;
+  }
+  .brand { font-size: 1.05rem; font-weight: 650; }
+  .brand .prod { color: var(--text-secondary); font-weight: 400; }
+  .asof { color: var(--text-muted); font-size: 0.78rem; }
+
+  .card {
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: var(--radius, 10px);
+    padding: 26px 28px;
+  }
+  .ticker-row {
+    display: flex; align-items: center; gap: 10px; margin-bottom: 18px;
+  }
+  .ticker {
+    font-weight: 650; font-size: 0.9rem;
+    border: 1px solid var(--hairline); border-radius: 6px; padding: 3px 8px;
+  }
+  .ticker-name { color: var(--text-secondary); font-size: 0.85rem; }
+
+  .status { display: flex; align-items: center; gap: 14px; margin: 6px 0 22px; }
+  .status .icon { font-size: 1.9rem; line-height: 1; }
+  .status .word { font-size: 2.3rem; font-weight: 650; letter-spacing: 0.01em; }
+  .status .sub { color: var(--text-secondary); font-size: 0.85rem; margin-top: 2px; }
+  .ok   { color: var(--status-good-text); }
+  .elev { color: var(--status-critical); }
+
+  .meter-label {
+    display: flex; justify-content: space-between;
+    color: var(--text-secondary); font-size: 0.8rem; margin-bottom: 6px;
+  }
+  .meter {
+    height: 10px; border-radius: 5px; overflow: hidden;
+    background: color-mix(in srgb, var(--status-good) 18%, var(--surface-1));
+  }
+  .meter.hot { background: color-mix(in srgb, var(--status-critical) 16%, var(--surface-1)); }
+  .meter .fill { height: 100%; border-radius: 5px; background: var(--status-good); }
+  .meter.hot .fill { background: var(--status-critical); }
+  .thresh-note { color: var(--text-muted); font-size: 0.75rem; margin-top: 6px; }
+
+  .facts {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 20px;
+  }
+  .fact {
+    border: 1px solid var(--hairline); border-radius: 8px; padding: 10px 12px;
+  }
+  .fact .k { color: var(--text-muted); font-size: 0.72rem; }
+  .fact .v { font-weight: 600; font-size: 1.05rem; margin-top: 2px;
+             font-variant-numeric: tabular-nums; }
+
+  .method {
+    color: var(--text-muted); font-size: 0.75rem; line-height: 1.5;
+    margin-top: 18px;
+  }
+  .legal {
+    color: var(--text-muted); font-size: 0.72rem; text-align: center;
+    margin: 22px 0 40px;
+  }
+  .err {
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 10px; padding: 16px; color: var(--status-critical);
+  }
+</style>
+</head>
+<body>
+<main class="monitor">
+  <div class="topbar">
+    <div class="brand">Deviation Atlas <span class="prod">· Risk Monitor</span></div>
+    <div class="asof" id="asof"></div>
+  </div>
+  <div id="app" class="card">Loading…</div>
+  <p class="legal">Research prototype — not investment advice.</p>
+</main>
+
+<script>
+"use strict";
+/* Display layer ONLY. Reads the same dashboard_data.json as the other views;
+   every number (including the threshold ratio) is precomputed in Python. */
+const pct = (x, d = 0) => (x * 100).toFixed(d) + "%";
+const fx  = (x, d = 4) => x == null ? "—" : x.toFixed(d);
+
+async function render() {
+  const app = document.getElementById("app");
+  let d;
+  try {
+    const r = await fetch("dashboard_data.json", { cache: "no-store" });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    d = await r.json();
+  } catch (err) {
+    app.outerHTML = `<div class="err">Could not load dashboard_data.json (${err.message}).</div>`;
+    return;
+  }
+
+  /* ?study=1 renders the FIXED Week-9 study instance (pinned by date in the
+     export) instead of the live state — used only during user testing. */
+  const study = new URLSearchParams(location.search).get("study") === "1";
+  const L = study
+    ? { date: d.study_event.flag_date, flag: 1,
+        signal_value: d.study_event.signal_value,
+        threshold: d.study_event.threshold, ratio: d.study_event.ratio }
+    : d.latest;
+  const elevated = L.flag === 1;
+  const fillPct = Math.min(L.ratio, 1) * 100;   // presentation cap only
+
+  document.getElementById("asof").textContent = `As of ${L.date} close`;
+
+  app.innerHTML = `
+    <div class="ticker-row">
+      <span class="ticker">${d.ticker}</span>
+      <span class="ticker-name">SPDR S&amp;P 500 ETF · daily</span>
+    </div>
+
+    <div class="status">
+      <span class="icon ${elevated ? "elev" : "ok"}">${elevated ? "⚠" : "✓"}</span>
+      <div>
+        <div class="word ${elevated ? "elev" : "ok"}">
+          Risk: ${elevated ? "ELEVATED" : "NORMAL"}</div>
+        <div class="sub">${elevated
+          ? "Volatility has crossed the alert threshold."
+          : "Volatility is below the alert threshold."}</div>
+      </div>
+    </div>
+
+    <div class="meter-label">
+      <span>Signal level</span>
+      <span>${pct(L.ratio)} of alert threshold</span>
+    </div>
+    <div class="meter ${elevated ? "hot" : ""}">
+      <div class="fill" style="width:${fillPct}%"></div>
+    </div>
+    <div class="thresh-note">Alert triggers at 100%.</div>
+
+    <div class="facts">
+      <div class="fact"><div class="k">20-day realized volatility (ann.)</div>
+        <div class="v">${fx(L.signal_value)}</div></div>
+      <div class="fact"><div class="k">Alert threshold</div>
+        <div class="v">${fx(L.threshold)}</div></div>
+    </div>
+
+    <p class="method">Monitors 20-day realized volatility of daily closes
+      against an adaptive threshold (1.5× the trailing 1-year median).
+      Updated with each data refresh.</p>`;
+}
+render();
+</script>
+</body>
+</html>

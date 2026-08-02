@@ -23,6 +23,11 @@
    sort order. Comparable cases use precomputed neighbor indices. */
 
 let DATA = null;
+/* ?study=1 (Week 9 user testing only): selects the fixed study instance and
+   masks ITS OWN realized outcome as "pending" — what the dashboard would have
+   shown the day that flag fired. The index is precomputed in the export. */
+const STUDY_MODE = new URLSearchParams(location.search).get("study") === "1";
+let STUDY_IDX = null;
 
 const pct  = (x, d = 1) => x == null ? "—" : (x * 100).toFixed(d) + "%";
 const num  = x => x == null ? "—" : x.toLocaleString("en-US");
@@ -62,6 +67,15 @@ function verdictBanner(g, h) {
 }
 
 function eventRow(e, i, selected) {
+  if (i === STUDY_IDX) {
+    return `<tr data-idx="${i}" class="${i === selected ? "selected" : ""}">
+      <td>${esc(e.flag_date)}</td>
+      <td>${fx(e.signal_value, 4)}</td>
+      <td>${fx(e.threshold, 4)}</td>
+      <td>—</td><td>—</td>
+      <td><span class="outcome">◌ pending</span></td>
+    </tr>`;
+  }
   const hit = e.outcome === "hit";
   return `<tr data-idx="${i}" class="${i === selected ? "selected" : ""}">
     <td>${esc(e.flag_date)}</td>
@@ -89,9 +103,12 @@ function neighborRows(idx) {
 
 function renderComparable(idx) {
   const e = DATA.events[idx];
+  const outcomeLabel = idx === STUDY_IDX
+    ? "flagged — outcome pending"
+    : (e.outcome === "hit" ? "hit" : "false alarm");
   document.getElementById("cmp-sub").innerHTML =
     `Viewing <strong>${esc(e.flag_date)}</strong> (signal ${fx(e.signal_value, 4)},
-     ${e.outcome === "hit" ? "hit" : "false alarm"}) — the ${DATA.n_neighbors}
+     ${outcomeLabel}) — the ${DATA.n_neighbors}
      past flags with the closest signal value, and what happened next:`;
   document.getElementById("cmp-body").innerHTML = neighborRows(idx);
   document.querySelectorAll("#history tbody tr").forEach(tr => {
@@ -114,9 +131,10 @@ async function render() {
     return;
   }
   DATA = d;
+  STUDY_IDX = STUDY_MODE && d.study_event ? d.study_event.index : null;
 
   const h = d.headline, g = d.null_gate, m = d.ci_method;
-  const selected = 0;
+  const selected = STUDY_IDX ?? 0;
   const ciHover = `${m.name} — block=${m.block}, ${m.runs} resamples, seed=${m.seed}. ${m.assumption}`;
 
   document.getElementById("meta").textContent =

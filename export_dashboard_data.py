@@ -19,12 +19,46 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 
+import backtest   # compute_signal only — reused, never reimplemented (decision 0001)
 import metrics
 import null_gate
 import uncertainty
 
 N_NEIGHBORS = 5   # comparable-cases panel size (Week 8, approved)
+
+# Week 9 user study: the FIXED signal instance shown in both views (?study=1).
+# Pinned by flag date so data refreshes cannot move it. Selection criteria
+# (pre-stated, neutral): signal 1.05-1.35x threshold, comparable cases split
+# 2-3 hits of 5 (ambiguous), not a famous crisis date. Realized outcome: hit,
+# -6.5% — revealed only in the post-test debrief, masked in study mode.
+STUDY_EVENT_DATE = "2018-02-02"
+
+
+def latest_state(data_csv: Path) -> dict:
+    """
+    Current signal state for the most recent trading day in the raw data.
+
+    Runs backtest.compute_signal (the locked formula, same function the
+    backtest uses — no second implementation) over the full price series and
+    reads the LAST row. Unlike per_day_results.csv this needs no forward
+    window: flag state on day t uses only data through t. `ratio` is
+    precomputed here so the frontend displays it without doing math.
+    """
+    df = pd.read_csv(data_csv, parse_dates=["date"])
+    sig = backtest.compute_signal(df)
+    last = sig.iloc[-1]
+    vol, thr = float(last["vol_20"]), float(last["threshold"])
+    if math.isnan(vol) or math.isnan(thr):
+        raise ValueError(f"{data_csv}: signal not warmed up on latest row")
+    return {
+        "date": str(last["date"].date()),
+        "flag": int(last["flag"]),
+        "signal_value": round(vol, 4),
+        "threshold": round(thr, 4),
+        "ratio": round(vol / thr, 4),
+    }
 
 
 def clean(x):
@@ -86,9 +120,24 @@ def build_payload(df, ticker: str) -> dict:
     for i, e in enumerate(events):
         e["neighbors"] = [int(j) for j in order[i]]
 
+    # Study event: located by date (refresh-proof), index + ratio precomputed
+    # here so neither frontend searches or does math. Fails loudly if missing.
+    study_idx = next((i for i, e in enumerate(events)
+                      if e["flag_date"] == STUDY_EVENT_DATE), None)
+    if study_idx is None:
+        raise ValueError(f"study event {STUDY_EVENT_DATE} not found in events")
+    se = events[study_idx]
+    study_event = {
+        **se,
+        "index": study_idx,
+        "ratio": round(se["signal_value"] / se["threshold"], 4),
+    }
+
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "ticker": ticker,
+        "latest": latest_state(Path("data") / f"{ticker}.csv"),
+        "study_event": study_event,
         "headline": s,
         "null_gate": g,
         "ci_method": {
