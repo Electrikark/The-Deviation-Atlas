@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Deviation Atlas — Track Record</title>
+<link rel="stylesheet" href="common.css">
+</head>
+<body>
+<main class="page">
+<header class="page-header">
+  <h1>Track record</h1>
+  <div class="sub"><a href="index.html">Overview</a> · <span id="meta">Loading dashboard_data.json…</span></div>
+</header>
+<div id="app"></div>
+</main>
+
+<script>
+"use strict";
+/* Display layer ONLY — every number below is pre-computed by Python
+   (metrics.py / null_gate.py / uncertainty.py via export_dashboard_data.py).
+   This file formats and renders; it never derives a metric, distance, or
+   sort order. Comparable cases use precomputed neighbor indices. */
+
+let DATA = null;
+
+const pct  = (x, d = 1) => x == null ? "—" : (x * 100).toFixed(d) + "%";
+const num  = x => x == null ? "—" : x.toLocaleString("en-US");
+const fx   = (x, d = 2) => x == null ? "—" : x.toFixed(d);
+const days = x => x == null ? "—" : `${(+x).toFixed(0)}d`;
+const esc  = s => String(s).replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
+const rng  = (lo, hi, d = 1) => (lo == null || hi == null)
+  ? "" : ` <span class="ci">[${pct(lo, d)}–${pct(hi, d)}]</span>`;
+
+function tile(label, value, note, opts = {}) {
+  const title = opts.hover ? ` title="${esc(opts.hover)}"` : "";
+  return `<div class="tile${opts.hero ? " hero" : ""}"${title}>
+    <div class="label">${esc(label)}</div>
+    <div class="value">${value}</div>
+    ${note ? `<div class="note">${esc(note)}</div>` : ""}
+  </div>`;
+}
+
+function verdictBanner(g, h) {
+  let head, cls;
+  if (!g.v1_pass)       { cls = "fail"; head = "✕ V1 gate: FAIL"; }
+  else if (g.fragile)   { cls = "warn"; head = "⚠ V1 gate: PASS (fragile)"; }
+  else                  { cls = "pass"; head = "✓ V1 gate: PASS"; }
+  const fragileNote = g.fragile ? `<span class="fragile-note">Fragile: the
+    clustering-aware CI lower bound for precision (${pct(h.precision_ci_bb_low)})
+    falls at or below the null model's 95th percentile (${pct(g.null_p95)}) —
+    the pass is not robust to regime-level uncertainty.</span>` : "";
+  return `<div class="verdict">
+    <span class="${cls}">${head}</span>
+    <span class="detail">
+      lift gate ${g.lift_gate_pass ? "pass" : "fail"} (${fx(g.real_lift)}x vs ≥1.5) ·
+      precision gate ${g.precision_gate_pass ? "pass" : "fail"}
+      (${pct(g.real_precision)} vs null 95th pct ${pct(g.null_p95)}, p=${fx(g.p_value, 3)})
+    </span>
+    ${fragileNote}
+  </div>`;
+}
+
+function eventRow(e, i, selected) {
+  const hit = e.outcome === "hit";
+  return `<tr data-idx="${i}" class="${i === selected ? "selected" : ""}">
+    <td>${esc(e.flag_date)}</td>
+    <td>${fx(e.signal_value, 4)}</td>
+    <td>${fx(e.threshold, 4)}</td>
+    <td>${pct(e.max_drawdown_30d, 2)}</td>
+    <td>${e.lead_time == null ? "—" : days(e.lead_time)}</td>
+    <td><span class="outcome ${hit ? "fail" : ""}">${hit ? "▼ hit" : "○ false alarm"}</span></td>
+  </tr>`;
+}
+
+function neighborRows(idx) {
+  return DATA.events[idx].neighbors.map(j => {
+    const e = DATA.events[j];
+    const hit = e.outcome === "hit";
+    return `<tr>
+      <td>${esc(e.flag_date)}</td>
+      <td>${fx(e.signal_value, 4)}</td>
+      <td>${pct(e.max_drawdown_30d, 2)}</td>
+      <td>${e.lead_time == null ? "—" : days(e.lead_time)}</td>
+      <td><span class="outcome ${hit ? "fail" : ""}">${hit ? "▼ hit" : "○ false alarm"}</span></td>
+    </tr>`;
+  }).join("");
+}
+
+function renderComparable(idx) {
+  const e = DATA.events[idx];
+  document.getElementById("cmp-sub").innerHTML =
+    `Viewing <strong>${esc(e.flag_date)}</strong> (signal ${fx(e.signal_value, 4)},
+     ${e.outcome === "hit" ? "hit" : "false alarm"}) — the ${DATA.n_neighbors}
+     past flags with the closest signal value, and what happened next:`;
+  document.getElementById("cmp-body").innerHTML = neighborRows(idx);
+  document.querySelectorAll("#history tbody tr").forEach(tr => {
+    tr.classList.toggle("selected", +tr.dataset.idx === idx);
+  });
+}
+
+async function render() {
+  const app = document.getElementById("app");
+  let d;
+  try {
+    const r = await fetch("dashboard_data.json", { cache: "no-store" });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    d = await r.json();
+  } catch (err) {
+    app.innerHTML = `<div class="err">Could not load <code>dashboard_data.json</code>
+      (${esc(err.message)}). If opened as a file://, serve the folder instead:
+      <code>python -m http.server 8123</code> then open
+      <a href="http://localhost:8123/dashboard/">http://localhost:8123/dashboard/</a></div>`;
+    return;
+  }
+  DATA = d;
+
+  const h = d.headline, g = d.null_gate, m = d.ci_method;
+  const selected = 0;
+  const ciHover = `${m.name} — block=${m.block}, ${m.runs} resamples, seed=${m.seed}. ${m.assumption}`;
+
+  document.getElementById("meta").textContent =
+    `${d.ticker} · ${num(h.n_days)} classified trading days · generated ${d.generated_at}`;
+
+  app.innerHTML = `
+    ${verdictBanner(g, h)}
+    <div class="tiles">
+      ${tile("Precision (hits / flags)",
+             `${pct(h.precision)}${rng(h.precision_ci_bb_low, h.precision_ci_bb_high)}`,
+             "95% CI, block bootstrap — see footnote", { hero: true, hover: ciHover })}
+      ${tile("Signal fired", num(h.total_flags), `across ${num(h.n_days)} days`)}
+      ${tile("Hits", num(h.hit_count), ">5% drawdown followed within 30 days")}
+      ${tile("False alarms", num(h.false_alarm_count), "no such drawdown followed")}
+      ${tile("Base rate", pct(h.base_rate), "any-day 5%/30d drawdown probability")}
+      ${tile("Lift", fx(h.lift) + "x", "precision / base rate")}
+      ${tile("Hit rate (TPR)",
+             `${pct(h.hit_rate_tpr)}${rng(h.tpr_ci_bb_low, h.tpr_ci_bb_high)}`,
+             "flags among all drawdown days", { hover: ciHover })}
+      ${tile("False alarm rate (FPR)",
+             `${pct(h.false_alarm_rate_fpr)}${rng(h.fpr_ci_bb_low, h.fpr_ci_bb_high)}`,
+             "flags among calm days", { hover: ciHover })}
+      ${tile("Avg drawdown on hits", pct(h.avg_drawdown_on_hits),
+             `median ${pct(h.median_drawdown_on_hits)}`)}
+      ${tile("Avg lead time on hits", days(h.avg_lead_time_on_hits), "flag to −5% crossing")}
+    </div>
+    <p class="footnote">Uncertainty ranges are 95% CIs from a
+      ${esc(m.name)} (block=${m.block}, ${num(m.runs)} resamples, fixed seed
+      ${m.seed}). ${esc(m.assumption)} Wilson 95% CI on precision for comparison:
+      ${pct(h.precision_ci_low)}–${pct(h.precision_ci_high)} — narrower because it
+      wrongly treats clustered flag-days as independent trials.</p>
+
+    <div class="panel">
+      <h2>Comparable past cases</h2>
+      <div class="sub" id="cmp-sub"></div>
+      <div class="tablewrap"><table>
+        <thead><tr>
+          <th>Flag date</th><th>Signal (vol_20)</th>
+          <th>Max drawdown 30d</th><th>Lead time</th><th>Outcome</th>
+        </tr></thead>
+        <tbody id="cmp-body"></tbody>
+      </table></div>
+      <div class="sub" style="margin-top:8px">Click any row in the history table
+        below to compare a different flag.</div>
+    </div>
+
+    <h2 class="section-title">Per-signal history</h2>
+    <div class="sub">All ${num(d.events.length)} flag events, unfiltered — false alarms included.</div>
+    <div class="tablewrap" id="history"><table>
+      <thead><tr>
+        <th>Flag date</th><th>Signal (vol_20)</th><th>Threshold</th>
+        <th>Max drawdown 30d</th><th>Lead time</th><th>Outcome</th>
+      </tr></thead>
+      <tbody>${d.events.map((e, i) => eventRow(e, i, selected)).join("")}</tbody>
+    </table></div>`;
+
+  renderComparable(selected);
+  document.querySelector("#history tbody").addEventListener("click", ev => {
+    const tr = ev.target.closest("tr[data-idx]");
+    if (tr) renderComparable(+tr.dataset.idx);
+  });
+}
+render();
+</script>
+</body>
+</html>

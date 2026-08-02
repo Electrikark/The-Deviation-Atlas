@@ -12,7 +12,8 @@ It only *displays* values pre-computed in Python; no metric math runs in JS.
 python export_dashboard_data.py            # -> dashboard/dashboard_data.json
 
 # 2. View locally (fetch() needs http://, not file://)
-python -m http.server 8123                 # then open http://localhost:8123/dashboard/
+python -m http.server 8123                 # intro: http://localhost:8123/dashboard/
+                                             # track record: .../dashboard/track-record.html
 ```
 
 **GitHub Pages:** works unchanged — the page fetches `dashboard_data.json` by
